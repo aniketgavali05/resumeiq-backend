@@ -1,0 +1,89 @@
+package com.resumeiq.backend.security;
+
+import java.nio.charset.StandardCharsets;
+import java.security.Key;
+import java.util.Date;
+import java.util.function.Function;
+
+import javax.crypto.SecretKey;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
+
+import com.resumeiq.backend.constant.SecurityConstants;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+
+@Service
+public class JwtService {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    private Key key;
+
+    @PostConstruct
+    public void init() {
+        key = Keys.hmacShaKeyFor(
+                secret.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public String generateToken(UserDetails userDetails) {
+
+        return Jwts.builder()
+                .subject(userDetails.getUsername())
+                .issuer(SecurityConstants.JWT_ISSUER)
+                .issuedAt(new Date())
+                .expiration(new Date(
+                        System.currentTimeMillis()
+                                + SecurityConstants.JWT_EXPIRATION))
+                .signWith((SecretKey) key)
+                .compact();
+    }
+
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public <T> T extractClaim(
+            String token,
+            Function<Claims, T> claimsResolver) {
+
+        Claims claims = extractAllClaims(token);
+
+        return claimsResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String token) {
+
+        return Jwts.parser()
+                .verifyWith((SecretKey) key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    public boolean isTokenExpired(String token) {
+
+        return extractExpiration(token)
+                .before(new Date());
+    }
+
+    public boolean isTokenValid(
+            String token,
+            UserDetails userDetails) {
+
+        String username = extractUsername(token);
+
+        return username.equals(userDetails.getUsername())
+                && !isTokenExpired(token);
+    }
+}
